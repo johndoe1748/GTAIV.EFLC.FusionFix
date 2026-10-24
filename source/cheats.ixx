@@ -1,6 +1,7 @@
 module;
 
 #include <common.hxx>
+#include <cstdio>
 
 export module cheats;
 
@@ -410,8 +411,9 @@ public:
             });
         };
 
-        // Beta Niko: keep Niko's cut gloves and haircut on in GTA IV without dialing the phone cheats.
-        // F9 switches this off (removes both) and back on. Use F9 instead of the phone cheats while this is active.
+        // Beta Niko (DEBUG BUILD): same behavior as before, plus an on-screen status line every 2 seconds:
+        //   BN on=<auto on/off> ep=<episode> ped=<player ped handle> hand=<before>><after> hair=<before>><after>
+        // F9 also shows "BN: F9" so we can tell the key is being read.
         FusionFix::onGameProcessEvent() += []()
         {
             constexpr uint32_t COMPONENT_HAND = 4;
@@ -419,32 +421,50 @@ public:
             static bool bBetaNiko = true;
             static bool bF9WasDown = false;
             static ULONGLONG nLastApply = 0;
+            static ULONGLONG nLastStatus = 0;
+            static char szStatus[128];
 
-            if (*_dwCurrentEpisode != 0)
-                return;
+            auto Show = [](const char* text)
+            {
+                Natives::PrintStringWithLiteralStringNow((char*)"STRING", (void*)text, 1800, true);
+            };
 
             const bool bF9Down = IsKeyboardKeyPressed(VK_F9);
             const bool bToggled = bF9Down && !bF9WasDown;
             bF9WasDown = bF9Down;
-
             if (bToggled)
+            {
                 bBetaNiko = !bBetaNiko;
-            else if (GetTickCount64() - nLastApply < 500)
-                return; // only recheck twice a second
-            nLastApply = GetTickCount64();
+                Show(bBetaNiko ? "BN: F9 (auto ON)" : "BN: F9 (auto OFF)");
+            }
 
             Ped PlayerPed = 0;
             Natives::GetPlayerChar(Natives::ConvertIntToPlayerIndex(Natives::GetPlayerId()), &PlayerPed);
-            if (!PlayerPed)
-                return;
 
-            // same rule as the phone cheats: vanilla is drawable 0, beta is drawable 1
-            const uint32_t from = bBetaNiko ? 0 : 1;
-            const uint32_t to = bBetaNiko ? 1 : 0;
-            for (uint32_t component : { COMPONENT_HAND, COMPONENT_HAIR })
+            const bool bDue = bToggled || (GetTickCount64() - nLastApply >= 500);
+            uint32_t h0 = 99, h1 = 99, k0 = 99, k1 = 99;
+            if (bDue && *_dwCurrentEpisode == 0 && PlayerPed)
             {
-                if (Natives::GetCharDrawableVariation(PlayerPed, component) == from)
-                    Natives::SetCharComponentVariation(PlayerPed, component, to, 0);
+                nLastApply = GetTickCount64();
+                const uint32_t from = bBetaNiko ? 0 : 1;
+                const uint32_t to = bBetaNiko ? 1 : 0;
+
+                h0 = h1 = Natives::GetCharDrawableVariation(PlayerPed, COMPONENT_HAND);
+                k0 = k1 = Natives::GetCharDrawableVariation(PlayerPed, COMPONENT_HAIR);
+                if (h0 == from)
+                    Natives::SetCharComponentVariation(PlayerPed, COMPONENT_HAND, to, 0);
+                if (k0 == from)
+                    Natives::SetCharComponentVariation(PlayerPed, COMPONENT_HAIR, to, 0);
+                h1 = Natives::GetCharDrawableVariation(PlayerPed, COMPONENT_HAND);
+                k1 = Natives::GetCharDrawableVariation(PlayerPed, COMPONENT_HAIR);
+            }
+
+            if (GetTickCount64() - nLastStatus >= 2000)
+            {
+                nLastStatus = GetTickCount64();
+                snprintf(szStatus, sizeof(szStatus), "BN on=%d ep=%d ped=%u hand=%u>%u hair=%u>%u",
+                    bBetaNiko ? 1 : 0, (int)*_dwCurrentEpisode, (unsigned)PlayerPed, h0, h1, k0, k1);
+                Show(szStatus);
             }
         };
     }
