@@ -1,6 +1,7 @@
 module;
 
 #include <common.hxx>
+#include <cwchar>
 
 export module cheats;
 
@@ -412,17 +413,39 @@ public:
 
         // Beta Niko: give Niko the cut gloves and haircut when a new Niko appears (new game, loading a save,
         // or the player ped changing). The game can reset parts of his outfit right after he spawns, so the look is
-        // applied for a short settling window (about 10 seconds of frames, a couple of attempts per second) and then left alone completely.
-        // After that, the phone cheats (gloves 458-555-0100, hair 288-555-0100) remove/restore them normally.
-        // F9 toggles both on/off by hand and also ends the settling window.
+        // applied for a short settling window (about 10 seconds of frames, a couple of attempts per second) and then
+        // left alone completely.
+        //
+        // Keys (each one also remembers your choice, so it is respected the next time Niko appears):
+        //   F9  - if any beta part is on: remove both. Otherwise: put both on.
+        //   F10 - toggle the gloves only.
+        //   F11 - toggle the hair only.
+        // The choice is stored in "GTAIV.EFLC.FusionFix.asi.BetaNiko.ini" next to the .asi
+        // ([BETANIKO] Gloves=1/0, Hair=1/0). Edit or delete that file to change the default.
+        // The phone cheats still work, but they do not change the remembered choice.
         FusionFix::onGameProcessEvent() += []()
         {
             constexpr uint32_t COMPONENT_HAND = 4;
             constexpr uint32_t COMPONENT_HAIR = 7;
             constexpr int SETTLE_FRAMES = 600;
             static Ped nLastPed = 0;
-            static bool bF9WasDown = false;
             static int nApplyFrames = 0;
+            static bool bKeyWasDown[3] = { false, false, false }; // F9, F10, F11
+            static bool bSettingsLoaded = false;
+            static bool bWantGloves = true;
+            static bool bWantHair = true;
+            static wchar_t szIni[MAX_PATH] = { 0 };
+
+            if (!bSettingsLoaded)
+            {
+                bSettingsLoaded = true;
+                HMODULE hm = nullptr;
+                GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, (LPCWSTR)&CheatString, &hm);
+                GetModuleFileNameW(hm, szIni, MAX_PATH);
+                wcscat_s(szIni, L".BetaNiko.ini");
+                bWantGloves = GetPrivateProfileIntW(L"BETANIKO", L"Gloves", 1, szIni) != 0;
+                bWantHair = GetPrivateProfileIntW(L"BETANIKO", L"Hair", 1, szIni) != 0;
+            }
 
             if (*_dwCurrentEpisode != 0)
             {
@@ -431,9 +454,16 @@ public:
                 return;
             }
 
-            const bool bF9Down = IsKeyboardKeyPressed(VK_F9);
-            const bool bToggled = bF9Down && !bF9WasDown;
-            bF9WasDown = bF9Down;
+            auto JustPressed = [](int idx, int vk)
+            {
+                const bool bDown = IsKeyboardKeyPressed(vk);
+                const bool bJust = bDown && !bKeyWasDown[idx];
+                bKeyWasDown[idx] = bDown;
+                return bJust;
+            };
+            const bool bF9 = JustPressed(0, VK_F9);
+            const bool bF10 = JustPressed(1, VK_F10);
+            const bool bF11 = JustPressed(2, VK_F11);
 
             Ped PlayerPed = 0;
             Natives::GetPlayerChar(Natives::ConvertIntToPlayerIndex(Natives::GetPlayerId()), &PlayerPed);
@@ -450,33 +480,56 @@ public:
                 nApplyFrames = SETTLE_FRAMES;
             }
 
-            // same rule as the phone cheats: vanilla is drawable 0, beta is drawable 1
-            uint32_t from = 0;
-            uint32_t to = 1;
+            // same rule as the phone cheats: vanilla is drawable 0, beta is drawable 1.
+            // Only 0 and 1 are ever changed, so any other outfit piece is left alone.
+            auto SetPart = [PlayerPed](uint32_t component, uint32_t value)
+            {
+                const uint32_t cur = Natives::GetCharDrawableVariation(PlayerPed, component);
+                if ((cur == 0 || cur == 1) && cur != value)
+                    Natives::SetCharComponentVariation(PlayerPed, component, value, 0);
+            };
 
-            if (bToggled)
+            if (bF9 || bF10 || bF11)
             {
                 nApplyFrames = 0; // a manual choice ends the settling window
-                const bool bAnyBeta =
-                    Natives::GetCharDrawableVariation(PlayerPed, COMPONENT_HAND) == 1 ||
-                    Natives::GetCharDrawableVariation(PlayerPed, COMPONENT_HAIR) == 1;
-                from = bAnyBeta ? 1 : 0;
-                to = bAnyBeta ? 0 : 1;
-            }
-            else
-            {
-                if (nApplyFrames <= 0)
-                    return;
-                --nApplyFrames;
-                if (nApplyFrames % 30 != 0)
-                    return; // at most about 2 attempts per second, like the build that worked
+                const bool bGlovesBeta = Natives::GetCharDrawableVariation(PlayerPed, COMPONENT_HAND) == 1;
+                const bool bHairBeta = Natives::GetCharDrawableVariation(PlayerPed, COMPONENT_HAIR) == 1;
+
+                if (bF9)
+                {
+                    const bool bTurnOn = !(bGlovesBeta || bHairBeta);
+                    bWantGloves = bTurnOn;
+                    bWantHair = bTurnOn;
+                }
+                else if (bF10)
+                {
+                    bWantGloves = !bGlovesBeta;
+                }
+                else
+                {
+                    bWantHair = !bHairBeta;
+                }
+
+                WritePrivateProfileStringW(L"BETANIKO", L"Gloves", bWantGloves ? L"1" : L"0", szIni);
+                WritePrivateProfileStringW(L"BETANIKO", L"Hair", bWantHair ? L"1" : L"0", szIni);
+
+                if (bF9 || bF10)
+                    SetPart(COMPONENT_HAND, bWantGloves ? 1 : 0);
+                if (bF9 || bF11)
+                    SetPart(COMPONENT_HAIR, bWantHair ? 1 : 0);
+                return;
             }
 
-            for (uint32_t component : { COMPONENT_HAND, COMPONENT_HAIR })
-            {
-                if (Natives::GetCharDrawableVariation(PlayerPed, component) == from)
-                    Natives::SetCharComponentVariation(PlayerPed, component, to, 0);
-            }
+            if (nApplyFrames <= 0)
+                return;
+            --nApplyFrames;
+            if (nApplyFrames % 30 != 0)
+                return; // at most about 2 attempts per second
+
+            if (bWantGloves)
+                SetPart(COMPONENT_HAND, 1);
+            if (bWantHair)
+                SetPart(COMPONENT_HAIR, 1);
         };
     }
 } Cheats;
