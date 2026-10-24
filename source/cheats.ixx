@@ -1,7 +1,6 @@
 module;
 
 #include <common.hxx>
-#include <cstdio>
 
 export module cheats;
 
@@ -409,63 +408,6 @@ public:
                 else
                     Natives::PrintHelp((char*)"CHEAT2");
             });
-        };
-
-        // Beta Niko (DEBUG BUILD): same behavior as before, plus an on-screen status line every 2 seconds:
-        //   BN on=<auto on/off> ep=<episode> ped=<player ped handle> hand=<before>><after> hair=<before>><after>
-        // F9 also shows "BN: F9" so we can tell the key is being read.
-        FusionFix::onGameProcessEvent() += []()
-        {
-            constexpr uint32_t COMPONENT_HAND = 4;
-            constexpr uint32_t COMPONENT_HAIR = 7;
-            static bool bBetaNiko = true;
-            static bool bF9WasDown = false;
-            static ULONGLONG nLastApply = 0;
-            static ULONGLONG nLastStatus = 0;
-            static char szStatus[128];
-
-            auto Show = [](const char* text)
-            {
-                Natives::PrintStringWithLiteralStringNow((char*)"STRING", (void*)text, 1800, true);
-            };
-
-            const bool bF9Down = IsKeyboardKeyPressed(VK_F9);
-            const bool bToggled = bF9Down && !bF9WasDown;
-            bF9WasDown = bF9Down;
-            if (bToggled)
-            {
-                bBetaNiko = !bBetaNiko;
-                Show(bBetaNiko ? "BN: F9 (auto ON)" : "BN: F9 (auto OFF)");
-            }
-
-            Ped PlayerPed = 0;
-            Natives::GetPlayerChar(Natives::ConvertIntToPlayerIndex(Natives::GetPlayerId()), &PlayerPed);
-
-            const bool bDue = bToggled || (GetTickCount64() - nLastApply >= 500);
-            uint32_t h0 = 99, h1 = 99, k0 = 99, k1 = 99;
-            if (bDue && *_dwCurrentEpisode == 0 && PlayerPed)
-            {
-                nLastApply = GetTickCount64();
-                const uint32_t from = bBetaNiko ? 0 : 1;
-                const uint32_t to = bBetaNiko ? 1 : 0;
-
-                h0 = h1 = Natives::GetCharDrawableVariation(PlayerPed, COMPONENT_HAND);
-                k0 = k1 = Natives::GetCharDrawableVariation(PlayerPed, COMPONENT_HAIR);
-                if (h0 == from)
-                    Natives::SetCharComponentVariation(PlayerPed, COMPONENT_HAND, to, 0);
-                if (k0 == from)
-                    Natives::SetCharComponentVariation(PlayerPed, COMPONENT_HAIR, to, 0);
-                h1 = Natives::GetCharDrawableVariation(PlayerPed, COMPONENT_HAND);
-                k1 = Natives::GetCharDrawableVariation(PlayerPed, COMPONENT_HAIR);
-            }
-
-            if (GetTickCount64() - nLastStatus >= 2000)
-            {
-                nLastStatus = GetTickCount64();
-                snprintf(szStatus, sizeof(szStatus), "BN on=%d ep=%d ped=%u hand=%u>%u hair=%u>%u",
-                    bBetaNiko ? 1 : 0, (int)*_dwCurrentEpisode, (unsigned)PlayerPed, h0, h1, k0, k1);
-                Show(szStatus);
-            }
         };
     }
 } Cheats;
