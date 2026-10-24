@@ -409,5 +409,59 @@ public:
                     Natives::PrintHelp((char*)"CHEAT2");
             });
         };
+
+        // Beta Niko: give Niko the cut gloves and haircut ONCE whenever a new Niko appears
+        // (new game, loading a save, or the player ped changing). After that nothing is re-applied,
+        // so the phone cheats (gloves 458-555-0100, hair 288-555-0100) remove/restore them normally.
+        // F9 toggles both on/off by hand (also useful if a loaded save didn't get the look).
+        FusionFix::onGameProcessEvent() += []()
+        {
+            constexpr uint32_t COMPONENT_HAND = 4;
+            constexpr uint32_t COMPONENT_HAIR = 7;
+            static Ped nLastPed = 0;
+            static bool bF9WasDown = false;
+
+            if (*_dwCurrentEpisode != 0)
+            {
+                nLastPed = 0;
+                return;
+            }
+
+            const bool bF9Down = IsKeyboardKeyPressed(VK_F9);
+            const bool bToggled = bF9Down && !bF9WasDown;
+            bF9WasDown = bF9Down;
+
+            Ped PlayerPed = 0;
+            Natives::GetPlayerChar(Natives::ConvertIntToPlayerIndex(Natives::GetPlayerId()), &PlayerPed);
+            if (!PlayerPed)
+            {
+                nLastPed = 0;
+                return;
+            }
+
+            const bool bNewPed = (PlayerPed != nLastPed);
+            nLastPed = PlayerPed;
+
+            if (!bNewPed && !bToggled)
+                return;
+
+            // same rule as the phone cheats: vanilla is drawable 0, beta is drawable 1
+            uint32_t from = 0;
+            uint32_t to = 1;
+            if (bToggled)
+            {
+                const bool bAnyBeta =
+                    Natives::GetCharDrawableVariation(PlayerPed, COMPONENT_HAND) == 1 ||
+                    Natives::GetCharDrawableVariation(PlayerPed, COMPONENT_HAIR) == 1;
+                from = bAnyBeta ? 1 : 0;
+                to = bAnyBeta ? 0 : 1;
+            }
+
+            for (uint32_t component : { COMPONENT_HAND, COMPONENT_HAIR })
+            {
+                if (Natives::GetCharDrawableVariation(PlayerPed, component) == from)
+                    Natives::SetCharComponentVariation(PlayerPed, component, to, 0);
+            }
+        };
     }
 } Cheats;
