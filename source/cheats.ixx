@@ -409,5 +409,43 @@ public:
                     Natives::PrintHelp((char*)"CHEAT2");
             });
         };
+
+        // Beta Niko: keep Niko's cut gloves and haircut on in GTA IV without dialing the phone cheats.
+        // F9 switches this off (removes both) and back on. Use F9 instead of the phone cheats while this is active.
+        FusionFix::onGameProcessEvent() += []()
+        {
+            constexpr uint32_t COMPONENT_HAND = 4;
+            constexpr uint32_t COMPONENT_HAIR = 7;
+            static bool bBetaNiko = true;
+            static bool bF9WasDown = false;
+            static ULONGLONG nLastApply = 0;
+
+            if (*_dwCurrentEpisode != 0)
+                return;
+
+            const bool bF9Down = IsKeyboardKeyPressed(VK_F9);
+            const bool bToggled = bF9Down && !bF9WasDown;
+            bF9WasDown = bF9Down;
+
+            if (bToggled)
+                bBetaNiko = !bBetaNiko;
+            else if (GetTickCount64() - nLastApply < 500)
+                return; // only recheck twice a second
+            nLastApply = GetTickCount64();
+
+            Ped PlayerPed = 0;
+            Natives::GetPlayerChar(Natives::ConvertIntToPlayerIndex(Natives::GetPlayerId()), &PlayerPed);
+            if (!PlayerPed)
+                return;
+
+            // same rule as the phone cheats: vanilla is drawable 0, beta is drawable 1
+            const uint32_t from = bBetaNiko ? 0 : 1;
+            const uint32_t to = bBetaNiko ? 1 : 0;
+            for (uint32_t component : { COMPONENT_HAND, COMPONENT_HAIR })
+            {
+                if (Natives::GetCharDrawableVariation(PlayerPed, component) == from)
+                    Natives::SetCharComponentVariation(PlayerPed, component, to, 0);
+            }
+        };
     }
 } Cheats;
