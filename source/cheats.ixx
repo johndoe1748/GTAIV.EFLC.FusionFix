@@ -410,20 +410,24 @@ public:
             });
         };
 
-        // Beta Niko: give Niko the cut gloves and haircut ONCE whenever a new Niko appears
-        // (new game, loading a save, or the player ped changing). After that nothing is re-applied,
-        // so the phone cheats (gloves 458-555-0100, hair 288-555-0100) remove/restore them normally.
-        // F9 toggles both on/off by hand (also useful if a loaded save didn't get the look).
+        // Beta Niko: give Niko the cut gloves and haircut when a new Niko appears (new game, loading a save,
+        // or the player ped changing). The game can reset parts of his outfit right after he spawns, so the look is
+        // applied for a short settling window (about 10 seconds of frames) and then left alone completely.
+        // After that, the phone cheats (gloves 458-555-0100, hair 288-555-0100) remove/restore them normally.
+        // F9 toggles both on/off by hand and also ends the settling window.
         FusionFix::onGameProcessEvent() += []()
         {
             constexpr uint32_t COMPONENT_HAND = 4;
             constexpr uint32_t COMPONENT_HAIR = 7;
+            constexpr int SETTLE_FRAMES = 600;
             static Ped nLastPed = 0;
             static bool bF9WasDown = false;
+            static int nApplyFrames = 0;
 
             if (*_dwCurrentEpisode != 0)
             {
                 nLastPed = 0;
+                nApplyFrames = 0;
                 return;
             }
 
@@ -436,25 +440,34 @@ public:
             if (!PlayerPed)
             {
                 nLastPed = 0;
+                nApplyFrames = 0;
                 return;
             }
 
-            const bool bNewPed = (PlayerPed != nLastPed);
-            nLastPed = PlayerPed;
-
-            if (!bNewPed && !bToggled)
-                return;
+            if (PlayerPed != nLastPed)
+            {
+                nLastPed = PlayerPed;
+                nApplyFrames = SETTLE_FRAMES;
+            }
 
             // same rule as the phone cheats: vanilla is drawable 0, beta is drawable 1
             uint32_t from = 0;
             uint32_t to = 1;
+
             if (bToggled)
             {
+                nApplyFrames = 0; // a manual choice ends the settling window
                 const bool bAnyBeta =
                     Natives::GetCharDrawableVariation(PlayerPed, COMPONENT_HAND) == 1 ||
                     Natives::GetCharDrawableVariation(PlayerPed, COMPONENT_HAIR) == 1;
                 from = bAnyBeta ? 1 : 0;
                 to = bAnyBeta ? 0 : 1;
+            }
+            else
+            {
+                if (nApplyFrames <= 0)
+                    return;
+                --nApplyFrames;
             }
 
             for (uint32_t component : { COMPONENT_HAND, COMPONENT_HAIR })
