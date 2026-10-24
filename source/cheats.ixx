@@ -412,7 +412,7 @@ public:
 
         // Beta Niko: give Niko the cut gloves and haircut when a new Niko appears (new game, loading a save,
         // or the player ped changing). The game can reset parts of his outfit right after he spawns, so the look is
-        // applied for a short settling window (about 10 seconds of frames) and then left alone completely.
+        // applied for a short settling window (about 10 seconds of frames, a couple of attempts per second) and then left alone completely.
         // After that, the phone cheats (gloves 458-555-0100, hair 288-555-0100) remove/restore them normally.
         // F9 toggles both on/off by hand and also ends the settling window.
         FusionFix::onGameProcessEvent() += []()
@@ -468,6 +468,8 @@ public:
                 if (nApplyFrames <= 0)
                     return;
                 --nApplyFrames;
+                if (nApplyFrames % 30 != 0)
+                    return; // at most about 2 attempts per second, like the build that worked
             }
 
             for (uint32_t component : { COMPONENT_HAND, COMPONENT_HAIR })
