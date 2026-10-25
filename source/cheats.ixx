@@ -2,6 +2,8 @@ module;
 
 #include <common.hxx>
 #include <cwchar>
+#include <cstdio>
+#include <intrin.h>
 
 export module cheats;
 
@@ -142,11 +144,67 @@ namespace ModelNameId
 
 void (__cdecl* SpawnCar)(int modelID) = nullptr;
 
+// ---- Beta Niko EXPERIMENT: log every time the game sets Niko's gloves (slot 4) or hair (slot 7) ----
+// Writes to "GTAIV.EFLC.FusionFix.asi.BetaNikoHook.log" next to the .asi. Changes nothing, only observes.
+static void BetaNikoHookLog(const char* line)
+{
+    static wchar_t szPath[MAX_PATH] = { 0 };
+    if (!szPath[0])
+    {
+        HMODULE hm = nullptr;
+        GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, (LPCWSTR)&CheatString, &hm);
+        GetModuleFileNameW(hm, szPath, MAX_PATH);
+        wcscat_s(szPath, L".BetaNikoHook.log");
+    }
+    FILE* f = nullptr;
+    if (_wfopen_s(&f, szPath, L"a") == 0 && f)
+    {
+        fputs(line, f);
+        fputc('\n', f);
+        fclose(f);
+    }
+}
+
+SafetyHookInline shSetPedComponent = {};
+bool __cdecl SetPedComponentHook(void* ped, void* a2, void* a3, uint8_t flag, int comp, int draw, int tex)
+{
+    static int nLogged = 0;
+    if ((comp == 4 || comp == 7) && nLogged < 800)
+    {
+        void* player = FindPlayerPed ? FindPlayerPed(0) : nullptr;
+        const bool bIsPlayer = player && ped == player;
+        if (bIsPlayer || !player) // player's own calls, or any call before a player exists
+        {
+            ++nLogged;
+            char buf[200];
+            snprintf(buf, sizeof(buf), "ret=%p ped=%p player=%p isPlayer=%d comp=%d draw=%d tex=%d ep=%d",
+                _ReturnAddress(), ped, player, bIsPlayer ? 1 : 0, comp, draw, tex,
+                _dwCurrentEpisode ? (int)*_dwCurrentEpisode : -1);
+            BetaNikoHookLog(buf);
+        }
+    }
+    return shSetPedComponent.unsafe_ccall<bool>(ped, a2, a3, flag, comp, draw, tex);
+}
+
 class Cheats
 {
 public:
     Cheats()
     {
+        FusionFix::onInitEventAsync() += []()
+        {
+            auto pattern = hook::pattern("51 80 7C 24 ? 00 53 56 8B 74 24 ? 57 0F BF 46 2E 8B 7C 24 ? 8B 04 85");
+            if (!pattern.empty())
+            {
+                shSetPedComponent = safetyhook::create_inline(pattern.get_first(0), SetPedComponentHook);
+                BetaNikoHookLog("--- hook installed on the internal set-ped-component function ---");
+            }
+            else
+            {
+                BetaNikoHookLog("--- hook pattern NOT found ---");
+            }
+        };
+
         FusionFix::onGameInitEvent() += []()
         {
             if (CText::hasViceCityStrings())
